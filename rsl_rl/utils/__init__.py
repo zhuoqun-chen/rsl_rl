@@ -5,4 +5,6 @@
 
 """Helper functions."""
 
+from .amp_motion_loader import AMPMotionLoader
+from .amp_normalizer import AMPNormalizer
 from .utils import *
