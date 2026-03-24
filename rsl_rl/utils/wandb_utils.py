@@ -43,6 +43,12 @@ class WandbSummaryWriter(SummaryWriter):
     # Add log directory to wandb
     wandb.config.update({"log_dir": log_dir})
 
+    # Dump a marker file so the log dir is findable via IDE file search by run ID.
+    if wandb.run is not None:
+      marker = os.path.join(log_dir, f"wandb-{wandb.run.id}")
+      with open(marker, "w") as f:
+        f.write(f"{wandb.run.url or wandb.run.id}\n")
+
     self.name_map = {
       "Train/mean_reward/time": "Train/mean_reward_time",
       "Train/mean_episode_length/time": "Train/mean_episode_length_time",
