@@ -24,6 +24,9 @@ class RolloutStorage:
       self.action_mean = None
       self.action_sigma = None
       self.hidden_states = None
+      # Cost constraint fields (P3O)
+      self.costs = None
+      self.values_c = None
 
     def clear(self):
       self.__init__()
@@ -36,6 +39,7 @@ class RolloutStorage:
     obs,
     actions_shape,
     device="cpu",
+    num_costs=0,
   ):
     # store inputs
     self.training_type = training_type
@@ -43,6 +47,7 @@ class RolloutStorage:
     self.num_transitions_per_env = num_transitions_per_env
     self.num_envs = num_envs
     self.actions_shape = actions_shape
+    self.num_costs = num_costs
 
     # Core
     self.observations = TensorDict(
@@ -88,6 +93,21 @@ class RolloutStorage:
         num_transitions_per_env, num_envs, 1, device=self.device
       )
 
+    # Cost constraint buffers (P3O)
+    if training_type == "rl" and num_costs > 0:
+      self.costs = torch.zeros(
+        num_transitions_per_env, num_envs, num_costs, device=self.device
+      )
+      self.values_c = torch.zeros(
+        num_transitions_per_env, num_envs, num_costs, device=self.device
+      )
+      self.returns_c = torch.zeros(
+        num_transitions_per_env, num_envs, num_costs, device=self.device
+      )
+      self.advantages_c = torch.zeros(
+        num_transitions_per_env, num_envs, num_costs, device=self.device
+      )
+
     # For RNN networks
     self.saved_hidden_states_a = None
     self.saved_hidden_states_c = None
@@ -118,6 +138,11 @@ class RolloutStorage:
       self.actions_log_prob[self.step].copy_(transition.actions_log_prob.view(-1, 1))
       self.mu[self.step].copy_(transition.action_mean)
       self.sigma[self.step].copy_(transition.action_sigma)
+      # Cost constraint data
+      if self.num_costs > 0 and transition.costs is not None:
+        self.costs[self.step].copy_(transition.costs)
+      if self.num_costs > 0 and transition.values_c is not None:
+        self.values_c[self.step].copy_(transition.values_c)
 
     # For RNN networks
     self._save_hidden_states(transition.hidden_states)
@@ -183,6 +208,36 @@ class RolloutStorage:
         self.advantages.std() + 1e-8
       )
 
+  def compute_cost_returns(self, last_values_c, c_gamma, lam):
+    """Compute cost GAE with per-cost discount factors.
+
+    Args:
+      last_values_c: (num_envs, num_costs) cost values at final step.
+      c_gamma: (num_costs,) tensor of per-cost discount factors.
+      lam: GAE lambda (scalar, shared with reward GAE).
+    """
+    advantage_c = torch.zeros(self.num_envs, self.num_costs, device=self.device)
+    for step in reversed(range(self.num_transitions_per_env)):
+      if step == self.num_transitions_per_env - 1:
+        next_values_c = last_values_c
+      else:
+        next_values_c = self.values_c[step + 1]
+      non_terminal = 1.0 - self.dones[step].float()  # (num_envs, 1)
+      delta_c = (
+        self.costs[step]
+        + c_gamma * next_values_c * non_terminal
+        - self.values_c[step]
+      )
+      advantage_c = delta_c + c_gamma * lam * non_terminal * advantage_c
+      # Zero at episode boundaries to prevent cross-episode GAE leakage
+      advantage_c = torch.where(
+        self.dones[step].bool().expand_as(advantage_c),
+        torch.zeros_like(advantage_c),
+        advantage_c,
+      )
+      self.returns_c[step] = advantage_c + self.values_c[step]
+    self.advantages_c = self.returns_c - self.values_c
+
   # for distillation
   def generator(self):
     if self.training_type != "distillation":
@@ -220,6 +275,14 @@ class RolloutStorage:
     old_mu = self.mu.flatten(0, 1)
     old_sigma = self.sigma.flatten(0, 1)
 
+    # Cost constraint data (P3O)
+    has_costs = self.num_costs > 0
+    if has_costs:
+      costs_flat = self.costs.flatten(0, 1)
+      values_c_flat = self.values_c.flatten(0, 1)
+      returns_c_flat = self.returns_c.flatten(0, 1)
+      advantages_c_flat = self.advantages_c.flatten(0, 1)
+
     for epoch in range(num_epochs):
       for i in range(num_mini_batches):
         # Select the indices for the mini-batch
@@ -240,8 +303,8 @@ class RolloutStorage:
         old_mu_batch = old_mu[batch_idx]
         old_sigma_batch = old_sigma[batch_idx]
 
-        # yield the mini-batch
-        yield (
+        # yield the mini-batch (10 elements for backward compat, + 4 cost elements)
+        sample = (
           obs_batch,
           actions_batch,
           target_values_batch,
@@ -256,6 +319,14 @@ class RolloutStorage:
           ),
           None,
         )
+        if has_costs:
+          sample = sample + (
+            costs_flat[batch_idx],
+            values_c_flat[batch_idx],
+            returns_c_flat[batch_idx],
+            advantages_c_flat[batch_idx],
+          )
+        yield sample
 
   # for reinfrocement learning with recurrent networks
   def recurrent_mini_batch_generator(self, num_mini_batches, num_epochs=8):

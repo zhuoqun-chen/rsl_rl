@@ -6,6 +6,7 @@
 """Definitions for neural-network components for RL-agents."""
 
 from .actor_critic import ActorCritic
+from .actor_critic_cost import ActorCriticWithCostHeads
 from .actor_critic_recurrent import ActorCriticRecurrent
 from .amp_discriminator import AMPDiscriminator
 from .rnd import *
@@ -16,6 +17,7 @@ from .symmetry import *
 __all__ = [
   "ActorCritic",
   "ActorCriticRecurrent",
+  "ActorCriticWithCostHeads",
   "AMPDiscriminator",
   "StudentTeacher",
   "StudentTeacherRecurrent",
