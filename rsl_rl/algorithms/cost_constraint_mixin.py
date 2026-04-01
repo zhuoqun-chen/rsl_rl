@@ -38,9 +38,11 @@ class CostConstraintMixin:
     kappa_rho: float = 1.5,
     kappa_max: float = 100.0,
     normalize_cost: bool = True,
+    cost_term_names: list[str] | None = None,
   ):
     """Initialize cost constraint state. Call in __init__ after super().__init__()."""
     self.num_costs = num_costs
+    self.cost_term_names = cost_term_names or [f"cost_{i}" for i in range(num_costs)]
     if isinstance(c_gamma, torch.Tensor):
       self.c_gamma = c_gamma.to(self.device)
     else:

@@ -32,6 +32,7 @@ class ConstrainedAMP_PPO(CostConstraintMixin, AMP_PPO):
     kappa_max: float = 100.0,
     normalize_cost: bool = True,
     cost_limits: list[float] | None = None,
+    cost_term_names: list[str] | None = None,
     **amp_ppo_kwargs,
   ):
     AMP_PPO.__init__(self, policy, discriminator, amp_data, amp_normalizer, **amp_ppo_kwargs)
@@ -42,6 +43,7 @@ class ConstrainedAMP_PPO(CostConstraintMixin, AMP_PPO):
     self._init_cost_constraint(
       num_costs, c_gamma, c_scale, cost_value_loss_coef,
       adaptive_kappa, kappa_rho, kappa_max, normalize_cost,
+      cost_term_names,
     )
     if cost_limits is not None:
       self.cost_limits = torch.tensor(cost_limits, dtype=torch.float32, device=self.device)
@@ -337,7 +339,8 @@ class ConstrainedAMP_PPO(CostConstraintMixin, AMP_PPO):
     }
     if mean_l_viol_per_cost is not None:
       for i in range(self.num_costs):
-        loss_dict[f"cost_{i}_L_viol"] = mean_l_viol_per_cost[i].item()
+        name = self.cost_term_names[i]
+        loss_dict[f"cost/{name}/L_viol"] = mean_l_viol_per_cost[i].item()
     if self.adaptive_kappa:
       loss_dict["kappa_mean"] = self.c_scale.mean().item()
     if self.rnd:

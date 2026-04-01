@@ -70,6 +70,7 @@ class ConstrainedAMPOnPolicyRunner(AMPOnPolicyRunner):
     kappa_max = alg_cfg.pop("kappa_max", 100.0)
     normalize_cost = alg_cfg.pop("normalize_cost", True)
     cost_limits = alg_cfg.pop("cost_limits", None)
+    cost_term_names = alg_cfg.pop("cost_term_names", None)
     alg_cfg.pop("c_gamma_overrides", None)
     alg_cfg.pop("c_scale_overrides", None)
     alg_cfg.pop("broadcast_cost_params", None)
@@ -97,6 +98,7 @@ class ConstrainedAMPOnPolicyRunner(AMPOnPolicyRunner):
       kappa_max=kappa_max,
       normalize_cost=normalize_cost,
       cost_limits=cost_limits,
+      cost_term_names=cost_term_names,
       device=self.device,
       multi_gpu_cfg=self.multi_gpu_cfg,
       **alg_cfg,
